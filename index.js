@@ -32,7 +32,12 @@ async function run() {
       res.send('Server is running')
     })
 
-  
+    // post / create a user
+    app.post('/users', async (req, res) => {
+      const userData = req.body;
+      const result = await usersCollection.insertOne(userData);
+      res.send(result);
+    });
     
     // await client.connect();
     // Send a ping to confirm a successful connection
