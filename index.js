@@ -32,13 +32,19 @@ async function run() {
       res.send('Server is running')
     })
 
+    // get all users
+    app.get('/users', async (req, res) => {
+      const result = await usersCollection.find().toArray();
+      res.send(result);
+    })
+
     // post / create a user
     app.post('/users', async (req, res) => {
       const userData = req.body;
       const result = await usersCollection.insertOne(userData);
       res.send(result);
     });
-    
+
     // await client.connect();
     // Send a ping to confirm a successful connection
     await client.db("admin").command({ ping: 1 });
