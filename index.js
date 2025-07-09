@@ -4,7 +4,6 @@ require('dotenv').config()
 const { MongoClient, ServerApiVersion, ObjectId } = require('mongodb');
 const admin = require("firebase-admin"); //firebase admin
 
-dotenv.config();
 
 const app = express();
 const port = process.env.PORT || 3000;
@@ -17,7 +16,7 @@ app.use(express.json());
 var serviceAccount = require("./firebase-admin-key.json");
 
 admin.initializeApp({
-    credential: admin.credential.cert(serviceAccount)
+  credential: admin.credential.cert(serviceAccount)
 });
 
 
@@ -35,28 +34,28 @@ async function run() {
   try {
     // all collections here
     const usersCollection = client.db('petifyDB').collection('users');
+    const petsCollection = client.db('petifyDB').collection('pets');
 
-    
-      //custom middlewares
-      const verifyFBToken = async (req, res, next) => {
-        const authHeader = req.headers.authorization;
-        if (!authHeader) {
-            return res.status(401).send({ message: 'Unauthorized access' });
-        }
-        const token = authHeader.split(' ')[1];
-        if (!token) {
-            return res.status(401).send({ message: 'Unauthorized access' });
-        }
+    //custom middlewares
+    const verifyFBToken = async (req, res, next) => {
+      const authHeader = req.headers.authorization;
+      if (!authHeader) {
+        return res.status(401).send({ message: 'Unauthorized access' });
+      }
+      const token = authHeader.split(' ')[1];
+      if (!token) {
+        return res.status(401).send({ message: 'Unauthorized access' });
+      }
 
-        //verify token
-        try {
-            const decoded = await admin.auth().verifyIdToken(token);
-            req.decoded = decoded;
-            next();
+      //verify token
+      try {
+        const decoded = await admin.auth().verifyIdToken(token);
+        req.decoded = decoded;
+        next();
 
-        } catch (error) {
-            return res.status(403).send({ message: 'Forbidden access' });
-        }
+      } catch (error) {
+        return res.status(403).send({ message: 'Forbidden access' });
+      }
 
     }
 
@@ -64,6 +63,28 @@ async function run() {
     app.get('/', (req, res) => {
       res.send('Server is running')
     })
+
+    // GET: Get user role by email
+    app.get('/users/:email/role', async (req, res) => {
+      try {
+        const email = req.params.email;
+
+        if (!email) {
+          return res.status(400).send({ message: 'Email is required' });
+        }
+
+        const user = await usersCollection.findOne({ email });
+
+        if (!user) {
+          return res.status(404).send({ message: 'User not found' });
+        }
+
+        res.send({ role: user.role || 'user' });
+      } catch (error) {
+        console.error('Error getting user role:', error);
+        res.status(500).send({ message: 'Failed to get role' });
+      }
+    });
 
     // get all users
     app.get('/users', async (req, res) => {
@@ -73,10 +94,30 @@ async function run() {
 
     // post / create a user
     app.post('/users', async (req, res) => {
-      const userData = req.body;
-      const result = await usersCollection.insertOne(userData);
+      const email = req.body.email;
+      const userExists = await usersCollection.findOne({ email });
+      if (userExists) {
+        return res.status(400).send({ message: 'User already exists' });
+      }
+      const user = req.body;
+      const result = await usersCollection.insertOne(user);
       res.send(result);
+
     });
+
+    //:::PETS API::: 
+     // POST: Create a new pet
+     app.post('/pets', async (req, res) => {
+      try {
+          const newPets = req.body;
+          // newPets.createdAt = new Date();
+          const result = await petsCollection.insertOne(newPets);
+          res.status(201).send(result);
+      } catch (error) {
+          console.error('Error inserting pets:', error);
+          res.status(500).send({ message: 'Failed to create pets' });
+      }
+  });
 
     // await client.connect();
     // Send a ping to confirm a successful connection
