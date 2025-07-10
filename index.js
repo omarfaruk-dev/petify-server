@@ -153,6 +153,33 @@ async function run() {
 
    
 
+    // PUT: Update pet information
+    app.put('/pets/:id', async (req, res) => {
+      try {
+        const id = req.params.id;
+        const updateData = req.body;
+        
+        // Remove fields that shouldn't be updated
+        delete updateData._id;
+        delete updateData.createdAt;
+        delete updateData.adopted;
+        
+        const result = await petsCollection.updateOne(
+          { _id: new ObjectId(id) },
+          { $set: updateData }
+        );
+        
+        if (result.matchedCount === 0) {
+          return res.status(404).send({ message: 'Pet not found' });
+        }
+        
+        res.send({ message: 'Pet updated successfully' });
+      } catch (error) {
+        console.error('Error updating pet:', error);
+        res.status(500).send({ message: 'Failed to update pet' });
+      }
+    });
+
     // DELETE: Delete a pet
     app.delete('/pets/:id', async (req, res) => {
       try {
