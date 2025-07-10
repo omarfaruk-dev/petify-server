@@ -106,6 +106,20 @@ async function run() {
     });
 
     //:::PETS API::: 
+
+    // GET: Get all non-adopted pets for listing
+    app.get('/pets/available', async (req, res) => {
+      try {
+        const pets = await petsCollection
+          .find({ adopted: { $ne: true } })
+          .sort({ createdAt: -1 })
+          .toArray();
+        res.send(pets);
+      } catch (error) {
+        console.error('Error fetching available pets:', error);
+        res.status(500).send({ message: 'Failed to fetch available pets' });
+      }
+    });
     //get pets by user id
     app.get('/pets/:id', async (req, res) => {
       try {
@@ -123,18 +137,20 @@ async function run() {
       }
     });
 
-     // POST: Create a new pet
-     app.post('/pets', async (req, res) => {
+    // POST: Create a new pet
+    app.post('/pets', async (req, res) => {
       try {
-          const newPets = req.body;
-          // newPets.createdAt = new Date();
-          const result = await petsCollection.insertOne(newPets);
-          res.status(201).send(result);
+        const newPets = req.body;
+        // newPets.createdAt = new Date();
+        const result = await petsCollection.insertOne(newPets);
+        res.status(201).send(result);
       } catch (error) {
-          console.error('Error inserting pets:', error);
-          res.status(500).send({ message: 'Failed to create pets' });
+        console.error('Error inserting pets:', error);
+        res.status(500).send({ message: 'Failed to create pets' });
       }
-  });
+    });
+
+
 
     // GET: Get pets by user email
     app.get('/pets', async (req, res) => {
@@ -151,6 +167,8 @@ async function run() {
       }
     });
 
+
+
    
 
     // PUT: Update pet information
@@ -158,21 +176,21 @@ async function run() {
       try {
         const id = req.params.id;
         const updateData = req.body;
-        
+
         // Remove fields that shouldn't be updated
         delete updateData._id;
         delete updateData.createdAt;
         delete updateData.adopted;
-        
+
         const result = await petsCollection.updateOne(
           { _id: new ObjectId(id) },
           { $set: updateData }
         );
-        
+
         if (result.matchedCount === 0) {
           return res.status(404).send({ message: 'Pet not found' });
         }
-        
+
         res.send({ message: 'Pet updated successfully' });
       } catch (error) {
         console.error('Error updating pet:', error);
