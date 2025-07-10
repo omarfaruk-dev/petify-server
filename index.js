@@ -151,7 +151,22 @@ async function run() {
       }
     });
 
-    
+   
+
+    // DELETE: Delete a pet
+    app.delete('/pets/:id', async (req, res) => {
+      try {
+        const id = req.params.id;
+        const result = await petsCollection.deleteOne({ _id: new ObjectId(id) });
+        if (result.deletedCount === 0) {
+          return res.status(404).send({ message: 'Pet not found' });
+        }
+        res.send({ message: 'Pet deleted successfully' });
+      } catch (error) {
+        console.error('Error deleting pet:', error);
+        res.status(500).send({ message: 'Failed to delete pet' });
+      }
+    });
 
     // await client.connect();
     // Send a ping to confirm a successful connection
