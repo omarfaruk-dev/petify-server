@@ -106,6 +106,23 @@ async function run() {
     });
 
     //:::PETS API::: 
+    //get pets by user id
+    app.get('/pets/:id', async (req, res) => {
+      try {
+        const id = req.params.id;
+        const pet = await petsCollection.findOne({ _id: new ObjectId(id) });
+
+        if (!pet) {
+          return res.status(404).send({ message: 'Pet not found' });
+        }
+
+        res.send(pet);
+      } catch (error) {
+        console.error('Error fetching pet:', error);
+        res.status(500).send({ message: 'Failed to fetch pet' });
+      }
+    });
+
      // POST: Create a new pet
      app.post('/pets', async (req, res) => {
       try {
@@ -118,6 +135,23 @@ async function run() {
           res.status(500).send({ message: 'Failed to create pets' });
       }
   });
+
+    // GET: Get pets by user email
+    app.get('/pets', async (req, res) => {
+      try {
+        const { email } = req.query;
+        if (!email) {
+          return res.status(400).send({ message: 'Email is required' });
+        }
+        const pets = await petsCollection.find({ userEmail: email }).toArray();
+        res.send(pets);
+      } catch (error) {
+        console.error('Error fetching pets:', error);
+        res.status(500).send({ message: 'Failed to fetch pets' });
+      }
+    });
+
+    
 
     // await client.connect();
     // Send a ping to confirm a successful connection
