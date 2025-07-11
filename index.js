@@ -35,6 +35,7 @@ async function run() {
     // all collections here
     const usersCollection = client.db('petifyDB').collection('users');
     const petsCollection = client.db('petifyDB').collection('pets');
+    const adoptionsCollection = client.db('petifyDB').collection('adoptions');
 
     //custom middlewares
     const verifyFBToken = async (req, res, next) => {
@@ -168,6 +169,23 @@ async function run() {
     });
 
 
+     // PUT: Update pet adoption status
+     app.put('/pets/:id/adopt', async (req, res) => {
+      try {
+        const id = req.params.id;
+        const result = await petsCollection.updateOne(
+          { _id: new ObjectId(id) },
+          { $set: { adopted: true } }
+        );
+        if (result.matchedCount === 0) {
+          return res.status(404).send({ message: 'Pet not found' });
+        }
+        res.send({ message: 'Pet marked as adopted successfully' });
+      } catch (error) {
+        console.error('Error updating pet:', error);
+        res.status(500).send({ message: 'Failed to update pet' });
+      }
+    });
 
    
 
@@ -212,6 +230,59 @@ async function run() {
         res.status(500).send({ message: 'Failed to delete pet' });
       }
     });
+
+    //:::ADOPTIONS API:::
+
+    // POST: Create a new adoption request
+    app.post('/adoptions', async (req, res) => {
+      try {
+        const adoptionData = req.body;
+        
+        // Validate required fields
+        const requiredFields = ['petId', 'petName', 'petImage', 'userName', 'userEmail', 'phoneNumber', 'address'];
+        for (const field of requiredFields) {
+          if (!adoptionData[field]) {
+            return res.status(400).send({ message: `${field} is required` });
+          }
+        }
+
+        // Check if pet exists and is available for adoption
+        const pet = await petsCollection.findOne({ _id: new ObjectId(adoptionData.petId) });
+        if (!pet) {
+          return res.status(404).send({ message: 'Pet not found' });
+        }
+
+        if (pet.adopted) {
+          return res.status(400).send({ message: 'Pet is already adopted' });
+        }
+
+        // Check if user has already submitted an adoption request for this pet
+        const existingAdoption = await adoptionsCollection.findOne({
+          petId: adoptionData.petId,
+          userEmail: adoptionData.userEmail
+        });
+
+        if (existingAdoption) {
+          return res.status(400).send({ message: 'You have already submitted an adoption request for this pet' });
+        }
+
+        // Add timestamp to adoption data
+        adoptionData.createdAt = new Date();
+        adoptionData.status = 'pending'; // pending, approved, rejected
+
+        const result = await adoptionsCollection.insertOne(adoptionData);
+        
+        res.status(201).send({
+          message: 'Adoption request submitted successfully',
+          adoptionId: result.insertedId
+        });
+      } catch (error) {
+        console.error('Error creating adoption request:', error);
+        res.status(500).send({ message: 'Failed to submit adoption request' });
+      }
+    });
+
+   
 
     // await client.connect();
     // Send a ping to confirm a successful connection
