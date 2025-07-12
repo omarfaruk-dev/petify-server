@@ -266,6 +266,9 @@ async function run() {
           return res.status(400).send({ message: 'You have already submitted an adoption request for this pet' });
         }
 
+        // Add petOwnerEmail to the adoption data
+        adoptionData.petOwnerEmail = pet.userEmail;
+
         // Add timestamp to adoption data
         adoptionData.createdAt = new Date();
         adoptionData.status = 'pending'; // pending, approved, rejected
@@ -281,6 +284,22 @@ async function run() {
         res.status(500).send({ message: 'Failed to submit adoption request' });
       }
     });
+
+     // GET: Get all adoption requests (for admin)
+     app.get('/adoptions', async (req, res) => {
+      try {
+        const adoptions = await adoptionsCollection
+          .find()
+          .sort({ createdAt: -1 })
+          .toArray();
+        res.send(adoptions);
+      } catch (error) {
+        console.error('Error fetching adoptions:', error);
+        res.status(500).send({ message: 'Failed to fetch adoptions' });
+      }
+    });
+
+   
 
    
 
