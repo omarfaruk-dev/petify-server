@@ -613,60 +613,6 @@ async function run() {
       }
     });
 
-    // POST: Create Stripe payment intent
-    app.post('/create-payment-intent', async (req, res) => {
-      const { amountInCents } = req.body;
-      try {
-        const paymentIntent = await stripe.paymentIntents.create({
-          amount: amountInCents,
-          currency: 'usd',
-          payment_method_types: ['card'],
-        });
-        res.json({ clientSecret: paymentIntent.client_secret });
-      } catch (error) {
-        res.status(500).json({ error: error.message });
-      }
-    });
-
-    // POST: Record a donation payment and update campaign
-    app.post('/payments', async (req, res) => {
-      try {
-        const { campaignId, email, donorName, amount, paymentMethod, transactionId } = req.body;
-        if (!campaignId || !email || !amount || !paymentMethod || !transactionId) {
-          return res.status(400).send({ message: 'Missing required payment fields' });
-        }
-        // 1. Update campaign's totalDonations
-        const campaign = await donationsCollection.findOne({ _id: new ObjectId(campaignId) });
-        if (!campaign) {
-          return res.status(404).send({ message: 'Campaign not found' });
-        }
-        const newTotal = (campaign.totalDonations || 0) + amount;
-        await donationsCollection.updateOne(
-          { _id: new ObjectId(campaignId) },
-          { $set: { totalDonations: newTotal, updatedAt: new Date() } }
-        );
-        // 2. Insert payment record
-        const now = new Date();
-        const paymentDoc = {
-          campaignId,
-          email,
-          donorName,
-          amount,
-          paymentMethod,
-          transactionId,
-          paid_at_string: now.toISOString(),
-          paid_at: now,
-        };
-        const paymentResult = await paymentsCollection.insertOne(paymentDoc);
-        res.status(201).send({
-          message: 'Donation payment recorded',
-          insertedId: paymentResult.insertedId,
-        });
-      } catch (error) {
-        console.error('Payment processing failed:', error);
-        res.status(500).send({ message: 'Failed to record payment' });
-      }
-    });
 
     // GET: Get a specific donation campaign by ID
     app.get('/donations/:id', async (req, res) => {
@@ -809,6 +755,116 @@ async function run() {
       } catch (error) {
         console.error('Error deleting donation campaign:', error);
         res.status(500).send({ message: 'Failed to delete donation campaign' });
+      }
+    });
+
+    //:::::STRIPE PAYMENT API:::::
+    // POST: Create Stripe payment intent
+    app.post('/create-payment-intent', async (req, res) => {
+      const { amountInCents } = req.body;
+      try {
+        const paymentIntent = await stripe.paymentIntents.create({
+          amount: amountInCents,
+          currency: 'usd',
+          payment_method_types: ['card'],
+        });
+        res.json({ clientSecret: paymentIntent.client_secret });
+      } catch (error) {
+        res.status(500).json({ error: error.message });
+      }
+    });
+
+    // POST: Record a donation payment and update campaign
+    app.post('/payments', async (req, res) => {
+      try {
+        const { campaignId, email, donorName, amount, paymentMethod, transactionId } = req.body;
+        if (!campaignId || !email || !amount || !paymentMethod || !transactionId) {
+          return res.status(400).send({ message: 'Missing required payment fields' });
+        }
+        // 1. Update campaign's totalDonations
+        const campaign = await donationsCollection.findOne({ _id: new ObjectId(campaignId) });
+        if (!campaign) {
+          return res.status(404).send({ message: 'Campaign not found' });
+        }
+        const newTotal = (campaign.totalDonations || 0) + amount;
+        await donationsCollection.updateOne(
+          { _id: new ObjectId(campaignId) },
+          { $set: { totalDonations: newTotal, updatedAt: new Date() } }
+        );
+        // 2. Insert payment record
+        const now = new Date();
+        const paymentDoc = {
+          campaignId,
+          email,
+          donorName,
+          amount,
+          paymentMethod,
+          transactionId,
+          paid_at_string: now.toISOString(),
+          paid_at: now,
+        };
+        const paymentResult = await paymentsCollection.insertOne(paymentDoc);
+        res.status(201).send({
+          message: 'Donation payment recorded',
+          insertedId: paymentResult.insertedId,
+        });
+      } catch (error) {
+        console.error('Payment processing failed:', error);
+        res.status(500).send({ message: 'Failed to record payment' });
+      }
+    });
+
+    // GET: Get all payments for a specific campaign or user
+    app.get('/payments',verifyFBToken, async (req, res) => {
+      try {
+        const { campaignId, email } = req.query;
+        let query = {};
+        if (campaignId) query.campaignId = campaignId;
+        if (email) query.email = email;
+        const payments = await paymentsCollection
+          .find(query)
+          .sort({ paid_at: -1 })
+          .toArray();
+        // Populate pet image and name from campaign
+        const campaignIds = [...new Set(payments.map(p => p.campaignId))];
+        const campaigns = await donationsCollection.find({ _id: { $in: campaignIds.map(id => new ObjectId(id)) } }).toArray();
+        const campaignMap = {};
+        campaigns.forEach(c => { campaignMap[c._id.toString()] = c; });
+        const paymentsWithCampaign = payments.map(p => ({
+          ...p,
+          petImage: campaignMap[p.campaignId]?.petImage || '',
+          petName: campaignMap[p.campaignId]?.shortDescription || '',
+        }));
+        res.send(paymentsWithCampaign);
+      } catch (error) {
+        console.error('Error fetching payments:', error);
+        res.status(500).send({ message: 'Failed to get payments' });
+      }
+    });
+
+    // DELETE: Refund/remove a donation payment and update campaign's totalDonations
+    app.delete('/payments/:id', async (req, res) => {
+      try {
+        const paymentId = req.params.id;
+        const payment = await paymentsCollection.findOne({ _id: new ObjectId(paymentId) });
+        if (!payment) {
+          return res.status(404).send({ message: 'Payment not found' });
+        }
+        // Remove payment
+        await paymentsCollection.deleteOne({ _id: new ObjectId(paymentId) });
+        // Update campaign's totalDonations
+        const campaign = await donationsCollection.findOne({ _id: new ObjectId(payment.campaignId) });
+        if (campaign) {
+          const newTotal = Math.max((campaign.totalDonations || 0) - (payment.amount || 0), 0);
+          await donationsCollection.updateOne(
+            { _id: new ObjectId(payment.campaignId) },
+            { $set: { totalDonations: newTotal, updatedAt: new Date() } }
+          );
+        }
+        res.send({ message: 'Donation refunded and removed.' });
+      } catch (error) {
+        console.error('Error refunding payment:', error);
+        res.status(500).send({ message: 'Failed to refund payment' });
       }
     });
 
