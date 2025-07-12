@@ -63,6 +63,17 @@ async function run() {
 
     }
 
+    //verify admin
+    const verifyAdmin = async (req, res, next) => {
+      const email = req.decoded.email;
+      const query = { email };
+      const user = await usersCollection.findOne(query);
+      if (!user || user.role !== 'admin') {
+          return res.status(403).send({ message: 'Forbidden access' });
+      }
+      next();
+  }
+
     // :::::::::all routes here:::::::::
     app.get('/', (req, res) => {
       res.send('Server is running')
@@ -90,6 +101,27 @@ async function run() {
         res.status(500).send({ message: 'Failed to get role' });
       }
     });
+     //search users by email
+     app.get("/users/search", verifyFBToken, async (req, res) => {
+      const emailQuery = req.query.email;
+      if (!emailQuery) {
+          return res.status(400).send({ message: "Missing email query" });
+      }
+
+      const regex = new RegExp(emailQuery, "i"); // case-insensitive partial match
+
+      try {
+          const users = await usersCollection
+              .find({ email: { $regex: regex } })
+              // .project({ email: 1, createdAt: 1, role: 1 })
+              .limit(10)
+              .toArray();
+          res.send(users);
+      } catch (error) {
+          console.error("Error searching users", error);
+          res.status(500).send({ message: "Error searching users" });
+      }
+  });
 
     // get all users
     app.get('/users', async (req, res) => {
@@ -109,6 +141,45 @@ async function run() {
       res.send(result);
 
     });
+
+    app.patch("/users/:id/role", verifyFBToken, verifyAdmin, async (req, res) => {
+      const { id } = req.params;
+      const { role } = req.body;
+
+      if (!["admin", "user"].includes(role)) {
+          return res.status(400).send({ message: "Invalid role" });
+      }
+
+      try {
+          const result = await usersCollection.updateOne(
+              { _id: new ObjectId(id) },
+              { $set: { role } }
+          );
+          res.send({ message: `User role updated to ${role}`, result });
+      } catch (error) {
+          console.error("Error updating user role", error);
+          res.status(500).send({ message: "Failed to update user role" });
+      }
+  });
+
+    // PATCH: Ban/Unban a user
+    app.patch("/users/:id/ban", verifyFBToken, verifyAdmin, async (req, res) => {
+      const { id } = req.params;
+      const { isBanned } = req.body;
+
+      try {
+          const result = await usersCollection.updateOne(
+              { _id: new ObjectId(id) },
+              { $set: { isBanned: isBanned } }
+          );
+          
+          const action = isBanned ? "banned" : "unbanned";
+          res.send({ message: `User ${action} successfully`, result });
+      } catch (error) {
+          console.error("Error updating user ban status", error);
+          res.status(500).send({ message: "Failed to update user ban status" });
+      }
+  });
 
     //:::PETS API::: 
 
