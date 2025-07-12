@@ -61,11 +61,12 @@ async function run() {
 
     }
 
-    // all routes here
+    // :::::::::all routes here:::::::::
     app.get('/', (req, res) => {
       res.send('Server is running')
     })
 
+    // :::::::: USER API ::::::::
     // GET: Get user role by email
     app.get('/users/:email/role', async (req, res) => {
       try {
@@ -388,6 +389,39 @@ async function run() {
       } catch (error) {
         console.error('Error creating donation campaign:', error);
         res.status(500).send({ message: 'Failed to create donation campaign' });
+      }
+    });
+
+    // GET: Get all donation campaigns with pagination
+    app.get('/donations', async (req, res) => {
+      try {
+        const page = parseInt(req.query.page) || 1;
+        const limit = parseInt(req.query.limit) || 10;
+        const skip = (page - 1) * limit;
+
+        // Get total count for pagination
+        const totalCount = await donationsCollection.countDocuments();
+        
+        // Get campaigns with pagination
+        const campaigns = await donationsCollection
+          .find()
+          .sort({ createdAt: -1 })
+          .skip(skip)
+          .limit(limit)
+          .toArray();
+
+        console.log(`Campaigns found: ${campaigns.length} (page ${page}, limit ${limit})`);
+        
+        res.send({
+          campaigns,
+          currentPage: page,
+          totalPages: Math.ceil(totalCount / limit),
+          totalCount,
+          hasMore: page * limit < totalCount
+        });
+      } catch (error) {
+        console.error('Error fetching donation campaigns:', error);
+        res.status(500).send({ message: 'Failed to fetch donation campaigns' });
       }
     });
 
