@@ -3,6 +3,7 @@ const cors = require('cors');
 require('dotenv').config()
 const { MongoClient, ServerApiVersion, ObjectId } = require('mongodb');
 const admin = require("firebase-admin"); //firebase admin
+const stripe = require('stripe')(process.env.PAYMENT_GATEWAY_KEY); // Stripe setup
 
 
 const app = express();
@@ -37,6 +38,7 @@ async function run() {
     const petsCollection = client.db('petifyDB').collection('pets');
     const adoptionsCollection = client.db('petifyDB').collection('adoptions');
     const donationsCollection = client.db('petifyDB').collection('donations');
+    const paymentsCollection = client.db('petifyDB').collection('payments');
 
     //custom middlewares
     const verifyFBToken = async (req, res, next) => {
@@ -425,7 +427,390 @@ async function run() {
       }
     });
 
-   
+    // GET: Get donation campaigns by user email with pagination
+    app.get('/donations/user/:email', verifyFBToken, async (req, res) => {
+      try {
+        const { email } = req.params;
+        const { page = 1, limit = 10 } = req.query;
+        
+        console.log('Fetching campaigns for user email:', email, 'page:', page, 'limit:', limit);
+        
+        // Convert to numbers
+        const pageNum = parseInt(page);
+        const limitNum = parseInt(limit);
+        const skip = (pageNum - 1) * limitNum;
+        
+        // Get total count for pagination
+        const totalCampaigns = await donationsCollection.countDocuments({ userEmail: email });
+        
+        // Get paginated campaigns
+        const campaigns = await donationsCollection
+          .find({ userEmail: email })
+          .sort({ createdAt: -1 })
+          .skip(skip)
+          .limit(limitNum)
+          .toArray();
+        
+        console.log('User campaigns found:', campaigns.length, 'total:', totalCampaigns);
+        
+        // Calculate total pages
+        const totalPages = Math.ceil(totalCampaigns / limitNum);
+        
+        res.send({
+          campaigns,
+          totalPages,
+          totalCampaigns,
+          currentPage: pageNum,
+          hasMore: pageNum < totalPages
+        });
+      } catch (error) {
+        console.error('Error fetching user donation campaigns:', error);
+        res.status(500).send({ message: 'Failed to fetch user donation campaigns' });
+      }
+    });
+
+    // GET: Get a specific donation campaign by ID
+    app.get('/donations/:id', async (req, res) => {
+      try {
+        const id = req.params.id;
+        const campaign = await donationsCollection.findOne({ _id: new ObjectId(id) });
+
+        if (!campaign) {
+          return res.status(404).send({ message: 'Donation campaign not found' });
+        }
+
+        res.send(campaign);
+      } catch (error) {
+        console.error('Error fetching donation campaign:', error);
+        res.status(500).send({ message: 'Failed to fetch donation campaign' });
+      }
+    });
+
+    // PUT: Update donation campaign
+    app.put('/donations/:id', async (req, res) => {
+      try {
+        const id = req.params.id;
+        const updateData = req.body;
+
+        // Remove fields that shouldn't be updated
+        delete updateData._id;
+        delete updateData.createdAt;
+        delete updateData.userEmail;
+        delete updateData.userName;
+
+        // Validate status if it's being updated
+        if (updateData.status && !['active', 'paused', 'completed', 'cancelled'].includes(updateData.status)) {
+          return res.status(400).send({ message: 'Invalid status. Must be active, paused, completed, or cancelled' });
+        }
+
+        const result = await donationsCollection.updateOne(
+          { _id: new ObjectId(id) },
+          { $set: updateData }
+        );
+
+        if (result.matchedCount === 0) {
+          return res.status(404).send({ message: 'Donation campaign not found' });
+        }
+
+        res.send({ message: 'Donation campaign updated successfully' });
+      } catch (error) {
+        console.error('Error updating donation campaign:', error);
+        res.status(500).send({ message: 'Failed to update donation campaign' });
+      }
+    });
+
+    // PUT: Update donation campaign status specifically
+    app.put('/donations/:id/status', async (req, res) => {
+      try {
+        const { id } = req.params;
+        const { status } = req.body;
+
+        if (!['active', 'paused', 'completed', 'cancelled'].includes(status)) {
+          return res.status(400).send({ message: 'Invalid status. Must be active, paused, completed, or cancelled' });
+        }
+
+        const result = await donationsCollection.updateOne(
+          { _id: new ObjectId(id) },
+          { $set: { status, updatedAt: new Date() } }
+        );
+
+        if (result.matchedCount === 0) {
+          return res.status(404).send({ message: 'Donation campaign not found' });
+        }
+
+        res.send({ message: 'Donation campaign status updated successfully' });
+      } catch (error) {
+        console.error('Error updating donation campaign status:', error);
+        res.status(500).send({ message: 'Failed to update donation campaign status' });
+      }
+    });
+
+    // PUT: Add donation to campaign
+    app.put('/donations/:id/donate', async (req, res) => {
+      try {
+        const { id } = req.params;
+        const { amount } = req.body;
+
+        if (!amount || amount <= 0) {
+          return res.status(400).send({ message: 'Valid donation amount is required' });
+        }
+
+        // Get the current campaign to check limits
+        const campaign = await donationsCollection.findOne({ _id: new ObjectId(id) });
+        if (!campaign) {
+          return res.status(404).send({ message: 'Donation campaign not found' });
+        }
+
+        // Check if campaign is active
+        if (campaign.status !== 'active') {
+          return res.status(400).send({ message: 'Campaign is not active for donations' });
+        }
+
+        // Check if donation would exceed max amount
+        const newTotal = (campaign.totalDonations || 0) + amount;
+        if (newTotal > campaign.maxAmount) {
+          return res.status(400).send({ message: 'Donation would exceed campaign goal' });
+        }
+
+        // Update the total donations
+        const result = await donationsCollection.updateOne(
+          { _id: new ObjectId(id) },
+          { 
+            $set: { 
+              totalDonations: newTotal,
+              updatedAt: new Date() 
+            } 
+          }
+        );
+
+        if (result.matchedCount === 0) {
+          return res.status(404).send({ message: 'Donation campaign not found' });
+        }
+
+        res.send({ 
+          message: 'Donation added successfully',
+          newTotal,
+          progress: Math.min((newTotal / campaign.maxAmount) * 100, 100)
+        });
+      } catch (error) {
+        console.error('Error adding donation:', error);
+        res.status(500).send({ message: 'Failed to add donation' });
+      }
+    });
+
+    // DELETE: Delete a donation campaign
+    app.delete('/donations/:id', async (req, res) => {
+      try {
+        const id = req.params.id;
+        const result = await donationsCollection.deleteOne({ _id: new ObjectId(id) });
+        if (result.deletedCount === 0) {
+          return res.status(404).send({ message: 'Donation campaign not found' });
+        }
+        res.send({ message: 'Donation campaign deleted successfully' });
+      } catch (error) {
+        console.error('Error deleting donation campaign:', error);
+        res.status(500).send({ message: 'Failed to delete donation campaign' });
+      }
+    });
+
+    // POST: Create Stripe payment intent
+    app.post('/create-payment-intent', async (req, res) => {
+      const { amountInCents } = req.body;
+      try {
+        const paymentIntent = await stripe.paymentIntents.create({
+          amount: amountInCents,
+          currency: 'usd',
+          payment_method_types: ['card'],
+        });
+        res.json({ clientSecret: paymentIntent.client_secret });
+      } catch (error) {
+        res.status(500).json({ error: error.message });
+      }
+    });
+
+    // POST: Record a donation payment and update campaign
+    app.post('/payments', async (req, res) => {
+      try {
+        const { campaignId, email, donorName, amount, paymentMethod, transactionId } = req.body;
+        if (!campaignId || !email || !amount || !paymentMethod || !transactionId) {
+          return res.status(400).send({ message: 'Missing required payment fields' });
+        }
+        // 1. Update campaign's totalDonations
+        const campaign = await donationsCollection.findOne({ _id: new ObjectId(campaignId) });
+        if (!campaign) {
+          return res.status(404).send({ message: 'Campaign not found' });
+        }
+        const newTotal = (campaign.totalDonations || 0) + amount;
+        await donationsCollection.updateOne(
+          { _id: new ObjectId(campaignId) },
+          { $set: { totalDonations: newTotal, updatedAt: new Date() } }
+        );
+        // 2. Insert payment record
+        const now = new Date();
+        const paymentDoc = {
+          campaignId,
+          email,
+          donorName,
+          amount,
+          paymentMethod,
+          transactionId,
+          paid_at_string: now.toISOString(),
+          paid_at: now,
+        };
+        const paymentResult = await paymentsCollection.insertOne(paymentDoc);
+        res.status(201).send({
+          message: 'Donation payment recorded',
+          insertedId: paymentResult.insertedId,
+        });
+      } catch (error) {
+        console.error('Payment processing failed:', error);
+        res.status(500).send({ message: 'Failed to record payment' });
+      }
+    });
+
+    // GET: Get a specific donation campaign by ID
+    app.get('/donations/:id', async (req, res) => {
+      try {
+        const id = req.params.id;
+        const campaign = await donationsCollection.findOne({ _id: new ObjectId(id) });
+
+        if (!campaign) {
+          return res.status(404).send({ message: 'Donation campaign not found' });
+        }
+
+        res.send(campaign);
+      } catch (error) {
+        console.error('Error fetching donation campaign:', error);
+        res.status(500).send({ message: 'Failed to fetch donation campaign' });
+      }
+    });
+
+    // PUT: Update donation campaign
+    app.put('/donations/:id', async (req, res) => {
+      try {
+        const id = req.params.id;
+        const updateData = req.body;
+
+        // Remove fields that shouldn't be updated
+        delete updateData._id;
+        delete updateData.createdAt;
+        delete updateData.userEmail;
+        delete updateData.userName;
+
+        // Validate status if it's being updated
+        if (updateData.status && !['active', 'paused', 'completed', 'cancelled'].includes(updateData.status)) {
+          return res.status(400).send({ message: 'Invalid status. Must be active, paused, completed, or cancelled' });
+        }
+
+        const result = await donationsCollection.updateOne(
+          { _id: new ObjectId(id) },
+          { $set: updateData }
+        );
+
+        if (result.matchedCount === 0) {
+          return res.status(404).send({ message: 'Donation campaign not found' });
+        }
+
+        res.send({ message: 'Donation campaign updated successfully' });
+      } catch (error) {
+        console.error('Error updating donation campaign:', error);
+        res.status(500).send({ message: 'Failed to update donation campaign' });
+      }
+    });
+
+    // PUT: Update donation campaign status specifically
+    app.put('/donations/:id/status', async (req, res) => {
+      try {
+        const { id } = req.params;
+        const { status } = req.body;
+
+        if (!['active', 'paused', 'completed', 'cancelled'].includes(status)) {
+          return res.status(400).send({ message: 'Invalid status. Must be active, paused, completed, or cancelled' });
+        }
+
+        const result = await donationsCollection.updateOne(
+          { _id: new ObjectId(id) },
+          { $set: { status, updatedAt: new Date() } }
+        );
+
+        if (result.matchedCount === 0) {
+          return res.status(404).send({ message: 'Donation campaign not found' });
+        }
+
+        res.send({ message: 'Donation campaign status updated successfully' });
+      } catch (error) {
+        console.error('Error updating donation campaign status:', error);
+        res.status(500).send({ message: 'Failed to update donation campaign status' });
+      }
+    });
+
+    // PUT: Add donation to campaign
+    app.put('/donations/:id/donate', async (req, res) => {
+      try {
+        const { id } = req.params;
+        const { amount } = req.body;
+
+        if (!amount || amount <= 0) {
+          return res.status(400).send({ message: 'Valid donation amount is required' });
+        }
+
+        // Get the current campaign to check limits
+        const campaign = await donationsCollection.findOne({ _id: new ObjectId(id) });
+        if (!campaign) {
+          return res.status(404).send({ message: 'Donation campaign not found' });
+        }
+
+        // Check if campaign is active
+        if (campaign.status !== 'active') {
+          return res.status(400).send({ message: 'Campaign is not active for donations' });
+        }
+
+        // Check if donation would exceed max amount
+        const newTotal = (campaign.totalDonations || 0) + amount;
+        if (newTotal > campaign.maxAmount) {
+          return res.status(400).send({ message: 'Donation would exceed campaign goal' });
+        }
+
+        // Update the total donations
+        const result = await donationsCollection.updateOne(
+          { _id: new ObjectId(id) },
+          { 
+            $set: { 
+              totalDonations: newTotal,
+              updatedAt: new Date() 
+            } 
+          }
+        );
+
+        if (result.matchedCount === 0) {
+          return res.status(404).send({ message: 'Donation campaign not found' });
+        }
+
+        res.send({ 
+          message: 'Donation added successfully',
+          newTotal,
+          progress: Math.min((newTotal / campaign.maxAmount) * 100, 100)
+        });
+      } catch (error) {
+        console.error('Error adding donation:', error);
+        res.status(500).send({ message: 'Failed to add donation' });
+      }
+    });
+
+    // DELETE: Delete a donation campaign (TODO: admin can delete it)
+    app.delete('/donations/:id', async (req, res) => {
+      try {
+        const id = req.params.id;
+        const result = await donationsCollection.deleteOne({ _id: new ObjectId(id) });
+        if (result.deletedCount === 0) {
+          return res.status(404).send({ message: 'Donation campaign not found' });
+        }
+        res.send({ message: 'Donation campaign deleted successfully' });
+      } catch (error) {
+        console.error('Error deleting donation campaign:', error);
+        res.status(500).send({ message: 'Failed to delete donation campaign' });
+      }
+    });
 
     // await client.connect();
     // Send a ping to confirm a successful connection
