@@ -299,6 +299,21 @@ async function run() {
       }
     });
 
+    // GET: Get adoption requests by user email
+    app.get('/adoptions/user/:email', async (req, res) => {
+      try {
+        const { email } = req.params;
+        const adoptions = await adoptionsCollection
+          .find({ userEmail: email })
+          .sort({ createdAt: -1 })
+          .toArray();
+        res.send(adoptions);
+      } catch (error) {
+        console.error('Error fetching user adoptions:', error);
+        res.status(500).send({ message: 'Failed to fetch user adoptions' });
+      }
+    });
+
    
 
    
