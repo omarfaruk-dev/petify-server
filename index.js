@@ -314,7 +314,42 @@ async function run() {
       }
     });
 
-   
+    // PUT: Update adoption status (for pets owner)
+    app.put('/adoptions/:id/status', async (req, res) => {
+      try {
+        const { id } = req.params;
+        const { status } = req.body;
+
+        if (!['pending', 'approved', 'rejected'].includes(status)) {
+          return res.status(400).send({ message: 'Invalid status. Must be pending, approved, or rejected' });
+        }
+
+        const result = await adoptionsCollection.updateOne(
+          { _id: new ObjectId(id) },
+          { $set: { status, updatedAt: new Date() } }
+        );
+
+        if (result.matchedCount === 0) {
+          return res.status(404).send({ message: 'Adoption request not found' });
+        }
+
+        // If approved, mark the pet as adopted
+        if (status === 'approved') {
+          const adoption = await adoptionsCollection.findOne({ _id: new ObjectId(id) });
+          if (adoption) {
+            await petsCollection.updateOne(
+              { _id: new ObjectId(adoption.petId) },
+              { $set: { adopted: true } }
+            );
+          }
+        }
+
+        res.send({ message: 'Adoption status updated successfully' });
+      } catch (error) {
+        console.error('Error updating adoption status:', error);
+        res.status(500).send({ message: 'Failed to update adoption status' });
+      }
+    });
 
    
 
