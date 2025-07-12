@@ -36,6 +36,7 @@ async function run() {
     const usersCollection = client.db('petifyDB').collection('users');
     const petsCollection = client.db('petifyDB').collection('pets');
     const adoptionsCollection = client.db('petifyDB').collection('adoptions');
+    const donationsCollection = client.db('petifyDB').collection('donations');
 
     //custom middlewares
     const verifyFBToken = async (req, res, next) => {
@@ -348,6 +349,45 @@ async function run() {
       } catch (error) {
         console.error('Error updating adoption status:', error);
         res.status(500).send({ message: 'Failed to update adoption status' });
+      }
+    });
+
+    //:::DONATIONS API:::
+
+    // POST: Create a new donation campaign
+    app.post('/donations', async (req, res) => {
+      try {
+        const campaignData = req.body;
+        
+        // Validate required fields
+        const requiredFields = ['petImage', 'maxAmount', 'lastDate', 'shortDescription', 'longDescription', 'userEmail'];
+        for (const field of requiredFields) {
+          if (!campaignData[field]) {
+            return res.status(400).send({ message: `${field} is required` });
+          }
+        }
+
+        // Validate that last date is in the future
+        const lastDate = new Date(campaignData.lastDate);
+        const now = new Date();
+        if (lastDate <= now) {
+          return res.status(400).send({ message: 'Last date must be in the future' });
+        }
+
+        // Validate max amount is positive
+        if (campaignData.maxAmount <= 0) {
+          return res.status(400).send({ message: 'Maximum amount must be greater than 0' });
+        }
+
+        const result = await donationsCollection.insertOne(campaignData);
+        
+        res.status(201).send({
+          message: 'Donation campaign created successfully',
+          insertedId: result.insertedId
+        });
+      } catch (error) {
+        console.error('Error creating donation campaign:', error);
+        res.status(500).send({ message: 'Failed to create donation campaign' });
       }
     });
 
