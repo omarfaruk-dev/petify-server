@@ -196,6 +196,21 @@ async function run() {
         res.status(500).send({ message: 'Failed to fetch available pets' });
       }
     });
+
+    // GET: Get all pets (admin only)
+    app.get('/pets/all', verifyFBToken, verifyAdmin, async (req, res) => {
+      try {
+        const pets = await petsCollection
+          .find()
+          .sort({ createdAt: -1 })
+          .toArray();
+        res.send(pets);
+      } catch (error) {
+        console.error('Error fetching all pets:', error);
+        res.status(500).send({ message: 'Failed to fetch pets' });
+      }
+    });
+
     //get pets by user id
     app.get('/pets/:id', async (req, res) => {
       try {
@@ -262,6 +277,33 @@ async function run() {
       }
     });
 
+    // PUT: Update pet adoption status (admin only)
+    app.put('/pets/:id/adoption-status', verifyFBToken, verifyAdmin, async (req, res) => {
+      try {
+        const id = req.params.id;
+        const { adopted } = req.body;
+        
+        if (typeof adopted !== 'boolean') {
+          return res.status(400).send({ message: 'Adopted status must be a boolean' });
+        }
+
+        const result = await petsCollection.updateOne(
+          { _id: new ObjectId(id) },
+          { $set: { adopted } }
+        );
+        
+        if (result.matchedCount === 0) {
+          return res.status(404).send({ message: 'Pet not found' });
+        }
+        
+        const status = adopted ? 'adopted' : 'available';
+        res.send({ message: `Pet marked as ${status} successfully` });
+      } catch (error) {
+        console.error('Error updating pet adoption status:', error);
+        res.status(500).send({ message: 'Failed to update pet adoption status' });
+      }
+    });
+
    
 
     // PUT: Update pet information
@@ -293,6 +335,21 @@ async function run() {
 
     // DELETE: Delete a pet
     app.delete('/pets/:id', async (req, res) => {
+      try {
+        const id = req.params.id;
+        const result = await petsCollection.deleteOne({ _id: new ObjectId(id) });
+        if (result.deletedCount === 0) {
+          return res.status(404).send({ message: 'Pet not found' });
+        }
+        res.send({ message: 'Pet deleted successfully' });
+      } catch (error) {
+        console.error('Error deleting pet:', error);
+        res.status(500).send({ message: 'Failed to delete pet' });
+      }
+    });
+
+    // DELETE: Delete a pet (admin only)
+    app.delete('/pets/:id/admin', verifyFBToken, verifyAdmin, async (req, res) => {
       try {
         const id = req.params.id;
         const result = await petsCollection.deleteOne({ _id: new ObjectId(id) });
@@ -472,12 +529,12 @@ async function run() {
         const limit = parseInt(req.query.limit) || 10;
         const skip = (page - 1) * limit;
 
-        // Get total count for pagination
-        const totalCount = await donationsCollection.countDocuments();
+        // Get total count for pagination (only active campaigns)
+        const totalCount = await donationsCollection.countDocuments({ status: 'active' });
         
-        // Get campaigns with pagination
+        // Get campaigns with pagination (only active campaigns)
         const campaigns = await donationsCollection
-          .find()
+          .find({ status: 'active' })
           .sort({ createdAt: -1 })
           .skip(skip)
           .limit(limit)
@@ -497,6 +554,8 @@ async function run() {
         res.status(500).send({ message: 'Failed to fetch donation campaigns' });
       }
     });
+
+   
 
     // GET: Get donation campaigns by user email with pagination
     app.get('/donations/user/:email', verifyFBToken, async (req, res) => {
@@ -671,6 +730,47 @@ async function run() {
 
     // DELETE: Delete a donation campaign
     app.delete('/donations/:id', async (req, res) => {
+      try {
+        const id = req.params.id;
+        const result = await donationsCollection.deleteOne({ _id: new ObjectId(id) });
+        if (result.deletedCount === 0) {
+          return res.status(404).send({ message: 'Donation campaign not found' });
+        }
+        res.send({ message: 'Donation campaign deleted successfully' });
+      } catch (error) {
+        console.error('Error deleting donation campaign:', error);
+        res.status(500).send({ message: 'Failed to delete donation campaign' });
+      }
+    });
+
+    // PUT: Update donation campaign status (admin only)
+    app.put('/donations/:id/admin-status', verifyFBToken, verifyAdmin, async (req, res) => {
+      try {
+        const { id } = req.params;
+        const { status } = req.body;
+
+        if (!['active', 'paused', 'completed', 'cancelled'].includes(status)) {
+          return res.status(400).send({ message: 'Invalid status. Must be active, paused, completed, or cancelled' });
+        }
+
+        const result = await donationsCollection.updateOne(
+          { _id: new ObjectId(id) },
+          { $set: { status, updatedAt: new Date() } }
+        );
+
+        if (result.matchedCount === 0) {
+          return res.status(404).send({ message: 'Donation campaign not found' });
+        }
+
+        res.send({ message: 'Donation campaign status updated successfully' });
+      } catch (error) {
+        console.error('Error updating donation campaign status:', error);
+        res.status(500).send({ message: 'Failed to update donation campaign status' });
+      }
+    });
+
+    // DELETE: Delete a donation campaign (admin only)
+    app.delete('/donations/:id/admin', verifyFBToken, verifyAdmin, async (req, res) => {
       try {
         const id = req.params.id;
         const result = await donationsCollection.deleteOne({ _id: new ObjectId(id) });
