@@ -555,7 +555,19 @@ async function run() {
       }
     });
 
-   
+    // GET: Get all donation campaigns (admin only)
+    app.get('/donations/all', verifyFBToken, verifyAdmin, async (req, res) => {
+      try {
+        const campaigns = await donationsCollection
+          .find()
+          .sort({ createdAt: -1 })
+          .toArray();
+        res.send(campaigns);
+      } catch (error) {
+        console.error('Error fetching all donation campaigns:', error);
+        res.status(500).send({ message: 'Failed to fetch donation campaigns' });
+      }
+    });
 
     // GET: Get donation campaigns by user email with pagination
     app.get('/donations/user/:email', verifyFBToken, async (req, res) => {
