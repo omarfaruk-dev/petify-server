@@ -558,11 +558,30 @@ async function run() {
     // GET: Get all donation campaigns (admin only)
     app.get('/donations/all', verifyFBToken, verifyAdmin, async (req, res) => {
       try {
+        const page = parseInt(req.query.page) || 1;
+        const limit = parseInt(req.query.limit) || 10;
+        const skip = (page - 1) * limit;
+
+        // Get total count for pagination
+        const totalCount = await donationsCollection.countDocuments();
+        
+        // Get campaigns with pagination
         const campaigns = await donationsCollection
           .find()
           .sort({ createdAt: -1 })
+          .skip(skip)
+          .limit(limit)
           .toArray();
-        res.send(campaigns);
+
+        console.log(`Admin campaigns found: ${campaigns.length} (page ${page}, limit ${limit})`);
+        
+        res.send({
+          campaigns,
+          currentPage: page,
+          totalPages: Math.ceil(totalCount / limit),
+          totalCount,
+          hasMore: page * limit < totalCount
+        });
       } catch (error) {
         console.error('Error fetching all donation campaigns:', error);
         res.status(500).send({ message: 'Failed to fetch donation campaigns' });
