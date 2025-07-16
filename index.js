@@ -124,10 +124,38 @@ async function run() {
   });
 
     // get all users
-    app.get('/users', async (req, res) => {
-      const result = await usersCollection.find().toArray();
-      res.send(result);
-    })
+    app.get('/users', verifyFBToken, async (req, res) => {
+      try {
+        // Parse page and limit from query, with defaults
+        const page = parseInt(req.query.page) || 1;
+        const limit = parseInt(req.query.limit) || 10;
+        const skip = (page - 1) * limit;
+
+        // Get total count for pagination
+        const totalCount = await usersCollection.countDocuments();
+
+        // Get paginated users
+        const users = await usersCollection
+          .find()
+          .sort({ createdAt: -1 })
+          .skip(skip)
+          .limit(limit)
+          .toArray();
+
+        // Calculate total pages
+        const totalPages = Math.ceil(totalCount / limit);
+
+        res.send({
+          users,
+          totalCount,
+          totalPages,
+          currentPage: page,
+        });
+      } catch (error) {
+        console.error('Error fetching users:', error);
+        res.status(500).send({ message: 'Failed to fetch users' });
+      }
+    });
 
     // post / create a user
     app.post('/users', async (req, res) => {
@@ -139,7 +167,6 @@ async function run() {
       const user = req.body;
       const result = await usersCollection.insertOne(user);
       res.send(result);
-
     });
 
     app.patch("/users/:id/role", verifyFBToken, verifyAdmin, async (req, res) => {
@@ -200,11 +227,31 @@ async function run() {
     // GET: Get all pets (admin only)
     app.get('/pets/all', verifyFBToken, verifyAdmin, async (req, res) => {
       try {
+        // Parse page and limit from query, with defaults
+        const page = parseInt(req.query.page) || 1;
+        const limit = parseInt(req.query.limit) || 10;
+        const skip = (page - 1) * limit;
+
+        // Get total count for pagination
+        const totalCount = await petsCollection.countDocuments();
+
+        // Get paginated pets
         const pets = await petsCollection
           .find()
           .sort({ createdAt: -1 })
+          .skip(skip)
+          .limit(limit)
           .toArray();
-        res.send(pets);
+
+        // Calculate total pages
+        const totalPages = Math.ceil(totalCount / limit);
+
+        res.send({
+          pets,
+          totalCount,
+          totalPages,
+          currentPage: page,
+        });
       } catch (error) {
         console.error('Error fetching all pets:', error);
         res.status(500).send({ message: 'Failed to fetch pets' });
@@ -247,11 +294,36 @@ async function run() {
     app.get('/pets', async (req, res) => {
       try {
         const { email } = req.query;
+        let { page = 1, limit = 10 } = req.query;
         if (!email) {
           return res.status(400).send({ message: 'Email is required' });
         }
-        const pets = await petsCollection.find({ userEmail: email }).toArray();
-        res.send(pets);
+        // Convert to numbers
+        const pageNum = parseInt(page);
+        const limitNum = parseInt(limit);
+        const skip = (pageNum - 1) * limitNum;
+
+        // Get total count for pagination
+        const totalPets = await petsCollection.countDocuments({ userEmail: email });
+
+        // Get paginated pets
+        const pets = await petsCollection
+          .find({ userEmail: email })
+          .sort({ createdAt: -1 })
+          .skip(skip)
+          .limit(limitNum)
+          .toArray();
+
+        // Calculate total pages
+        const totalPages = Math.ceil(totalPets / limitNum);
+
+        res.send({
+          pets,
+          totalPages,
+          totalPets,
+          currentPage: pageNum,
+          hasMore: pageNum < totalPages
+        });
       } catch (error) {
         console.error('Error fetching pets:', error);
         res.status(500).send({ message: 'Failed to fetch pets' });
