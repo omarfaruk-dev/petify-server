@@ -9,6 +9,10 @@ const stripe = require('stripe')(process.env.PAYMENT_GATEWAY_KEY); // Stripe set
 const app = express();
 const port = process.env.PORT || 3000;
 
+const decoded = Buffer.from(process.env.FB_SERVICE_KEY, 'base64').toString(
+  'utf8'
+);
+
 //middleware
 app.use(cors());
 app.use(express.json());
@@ -611,8 +615,6 @@ async function run() {
           .skip(skip)
           .limit(limit)
           .toArray();
-
-        console.log(`Campaigns found: ${campaigns.length} (page ${page}, limit ${limit})`);
         
         res.send({
           campaigns,
@@ -645,8 +647,6 @@ async function run() {
           .limit(limit)
           .toArray();
 
-        console.log(`Admin campaigns found: ${campaigns.length} (page ${page}, limit ${limit})`);
-        
         res.send({
           campaigns,
           currentPage: page,
@@ -665,9 +665,6 @@ async function run() {
       try {
         const { email } = req.params;
         const { page = 1, limit = 10 } = req.query;
-        
-        console.log('Fetching campaigns for user email:', email, 'page:', page, 'limit:', limit);
-        
         // Convert to numbers
         const pageNum = parseInt(page);
         const limitNum = parseInt(limit);
@@ -683,9 +680,6 @@ async function run() {
           .skip(skip)
           .limit(limitNum)
           .toArray();
-        
-        console.log('User campaigns found:', campaigns.length, 'total:', totalCampaigns);
-        
         // Calculate total pages
         const totalPages = Math.ceil(totalCampaigns / limitNum);
         
@@ -1144,8 +1138,8 @@ async function run() {
 
     // await client.connect();
     // Send a ping to confirm a successful connection
-    await client.db("admin").command({ ping: 1 });
-    console.log("Pinged your deployment. You successfully connected to MongoDB!");
+    // await client.db("admin").command({ ping: 1 });
+    // console.log("Pinged your deployment. You successfully connected to MongoDB!");
   } finally {
     // Ensures that the client will close when you finish/error
     // await client.close();
