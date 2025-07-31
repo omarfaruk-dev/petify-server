@@ -13,8 +13,8 @@ Petify Server is a robust RESTful API backend built with **Node.js, Express.js, 
 Built with **Express.js, MongoDB, Firebase Admin SDK, Stripe API & Node.js**
 
 ## Related Repositories
-- **Client-side:** [Petify Client Side Repo](https://github.com/Programming-Hero-Web-Course4/b11a12-client-side-omarfaruk-dev)
-- **Server-side:** [Petify Server Side Repo](https://github.com/Programming-Hero-Web-Course4/b11a12-server-side-omarfaruk-dev)
+- **Client-side:** [Petify Client Side Repo](https://github.com/omarfaruk-dev/petify-client)
+- **Server-side:** [Petify Server Side Repo](https://github.com/omarfaruk-dev/petify-server)
 
 ## Key Features
 
