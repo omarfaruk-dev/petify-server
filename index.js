@@ -15,7 +15,7 @@ const decoded = Buffer.from(process.env.FB_SERVICE_KEY, 'base64').toString(
 const serviceAccount = JSON.parse(decoded);
 
 
-//middleware
+//middleware 
 app.use(cors());
 app.use(express.json());
 
@@ -86,7 +86,7 @@ async function run() {
     })
 
     // :::::::: USER API ::::::::
-    // GET: Get user role by email
+    // GET: Get user role by email 
     app.get('/users/:email/role', async (req, res) => {
       try {
         const email = req.params.email;
